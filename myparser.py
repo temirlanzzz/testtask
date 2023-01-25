@@ -1,51 +1,52 @@
-from selenium import webdriver
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+import requests
+from bs4 import BeautifulSoup
 import json
 
 URL = "https://shop.kz/smartfony/"
-ELEMENT_LOCATOR = "//div[@class='bx_catalog_item']"
-NAME_LOCATOR = ".//h4[@class='bx_catalog_item_title_text']"
-ARTICUL_LOCATOR = ".//div[@class='bx_catalog_item_XML_articul']"
-MEMORY_LOCATOR = ".//span[@class='bx_catalog_item_value']"
-PRICE_LOCATOR = ".//span[@class='bx-more-price-text']"
-LAST_PAGE_NUMBER_LOCATOR = ".//div[@class='bx-pagination-container row']//li"
-NEXT_LOCATOR = "//li[@class='bx-pag-next']//a"
 
-# collects data from shop.kz/ssmartfony/ and saves to smartphones.json
 def get_json_data():
-    options = webdriver.ChromeOptions()
-    options.add_argument("--start-maximized")
-    driver =  webdriver.Chrome(ChromeDriverManager().install(), chrome_options=options)
-    driver.get(URL)
+    response = requests.get(URL, headers={"Content-Type":"text/html; charset=utf-8", "User-Agent" : "Chrome/51.0.2704.103"})
+    
+    soup = BeautifulSoup(response.text, 'html.parser')
+    last_page_number = soup.find('div', class_='bx-pagination-container row').find_all('li')[-2].text # сколько страниц есть 
     json_data = []
-    while(True):
-        
-        phones = driver.find_elements(by=By.XPATH, value=ELEMENT_LOCATOR)
+    current_page_number=1 
+    while(current_page_number <= int(last_page_number)):
+        phones = soup.find_all('div', class_='bx_catalog_item')
         for phone in phones:
-            phone_text = phone.find_element(by=By.XPATH, value = NAME_LOCATOR).text
-            phone_articul = phone.find_element(by=By.XPATH, value = ARTICUL_LOCATOR).text
-            phone_price = phone.find_elements(by=By.XPATH, value = PRICE_LOCATOR)[2].get_attribute("textContent")
+            phone_text = phone.find('h4', class_='bx_catalog_item_title_text').text
+            phone_articul = phone.find('div', class_='bx_catalog_item_XML_articul').text
+            phone_articul = phone_articul.split()[-1]
+            try:
+                phone_price = phone.find_all('span', class_ = 'bx-more-price-text')[-1].text
+            except IndexError:
+                break
             phone_price= phone_price[:-1]
             phone_price = phone_price.replace(" ","")
-            phone_memory = phone.find_elements(by=By.XPATH, value = MEMORY_LOCATOR)[4].text
-            
-            json_data.append({
+            # phone_memory = phone.find_all('span', class_ = 'bx_catalog_item_value')[4].text
+            phone_memory_texts = phone.find_all('span', class_ = 'bx_catalog_item_prop')
+            counter = 0
+            for phone_memory_text in phone_memory_texts:
+                if phone_memory_text.text == 'Объем встроенной памяти:':
+                    break
+                else:
+                    counter+=1
+            phone_memory = phone.find_all('span', class_ = 'bx_catalog_item_value')[counter].text
+            phone_data = {
                         "name": phone_text,
                         "articul": phone_articul,
                         "price": phone_price,
                         "memory-size": phone_memory
-                        })
+                        }
+            json_data.append(phone_data)
 
-        try:
-            next_button=driver.find_element(by=By.XPATH, value=NEXT_LOCATOR)
-            driver.execute_script("arguments[0].click();", next_button)
-        except NoSuchElementException:
-            break
+        
+        current_page_number+=1
+        next_page_url = "https://shop.kz/smartfony/filter/almaty-is-v_nalichii-or-ojidaem-or-dostavim/apply/?PAGEN_1="+str(current_page_number)
+        response = requests.get(next_page_url, headers={"Content-Type":"text/html; charset=utf-8", "User-Agent" : "Chrome/51.0.2704.103"})
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
 
     with open('smartphones.json', 'w', encoding='utf-8') as f:
         s=json.dumps( json_data, ensure_ascii=False)
         f.write(s)
-
-    driver.quit()
